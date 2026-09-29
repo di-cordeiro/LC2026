@@ -4,13 +4,12 @@ Repositório com os trabalhos da UC de Lógica Computacional (1º semestre, 2026
 
 ## Autores
 
-![Foto](https://github.com/AUok144.png)
+<img src="https://github.com/AUok144.png" width="120" alt="Foto">
 
 - **Nome**: Chen Yuqing
 - **ID**: A108397
 
-
-![Foto](https://github.com/di-cordeiro.png)
+<img src="https://github.com/di-cordeiro.png" width="120" alt="Foto">
 
 - **Nome**: Diana Rafaela Gonçalves Cordeiro 
 - **ID**: A112256
