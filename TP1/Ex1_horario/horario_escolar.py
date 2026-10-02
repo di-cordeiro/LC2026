@@ -107,18 +107,18 @@ def _(mo):
 def _(dados):
     from ortools.sat.python import cp_model
 
-    turmas = dados["turmas"]["turma"].tolist()
-    disciplinas = dados["disciplinas"]["disciplina"].tolist()
-    dias = ["Seg", "Ter", "Qua", "Qui", "Sex"]
-    tempos = range(1, 6)
+    T = dados["turmas"]["turma"].tolist()
+    D = dados["disciplinas"]["disciplina"].tolist()
+    I = ["Seg", "Ter", "Qua", "Qui", "Sex"]
+    H = range(1, 6)
 
-    modelo = cp_model.CpModel()
+    horario = cp_model.CpModel()
 
     x = {
-        (t, d, i, h): modelo.NewBoolVar(f"x_{t}_{d}_{i}_{h}")
-           for t in turmas for d in disciplinas for i in dias for h in tempos
+        (t, d, i, h): horario.NewBoolVar(f"x_{t}_{d}_{i}_{h}")
+           for t in T for d in D for i in I for h in H
         }
-    return
+    return D, H, I, T, horario, x
 
 
 @app.cell(hide_code=True)
@@ -132,6 +132,74 @@ def _(mo):
     pode expressar-se da seguinte forma:
 
     $$\forall_{t< T} \cdot \forall_{i< I} \cdot \forall_{h< H} \cdot \quad \sum_{d< D} x_{t,d,i,h} \leq 1$$
+    """)
+    return
+
+
+@app.cell
+def _(D, H, I, T, horario, x):
+    def restricao_sem_aulas_simultaneo():
+        for t in T:
+            for i in I:
+                for h in H:
+                    horario.Add(sum(x[(t,d,i,h)] for d in D) <= 1)
+
+    restricao_sem_aulas_simultaneo()
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    2. Em cada dia, uma turma tem no máximo uma aula de cada disciplina sem duplo período, e no máximo um bloco de dois tempos de cada disciplina com duplo período. Dividi-se em duas expressões, as com duplo período e as que não tem.
+
+    As sem duplo período pode expressar-se da seguinte forma:
+
+    $$\forall_{i<I} \cdot \forall_{t<T} \cdot \forall_{d<D,\;duplo(d)=\text{não}} \quad \sum_{h<H} x_{t,d,i,h} \leq 1$$
+
+    As com duplo período pode expressar-se da seguinte forma:
+    $$\forall_{i<I} \cdot \forall_{t<T} \cdot \forall_{d<D,\;duplo(d)=\text{sim}} \cdot \forall_{h<k,\;k>h+1} \quad x_{t,d,i,h}+x_{t,d,i,k}\leq1$$
+    """)
+    return
+
+
+@app.cell
+def _(D, H, I, T, dados, horario, x):
+    def restricao_sem_duplo_periodo():
+        for i in I:
+            for t in T:
+                for d in D: 
+                    duplo = dados["disciplinas"].loc[dados["disciplinas"]["disciplina"] == d,"duplo_periodo"].iloc[0]
+                    if duplo == "nao":
+                        horario.Add(sum(x[(t, d, i, h)] for h in H) <= 1)
+                    
+    restricao_sem_duplo_periodo()
+    return
+
+
+@app.cell
+def _(D, H, I, T, dados, horario, x):
+    def restricao_com_duplo_periodo():
+        for i in I:
+            for t in T:
+                for d in D: 
+                    duplo = dados["disciplinas"].loc[dados["disciplinas"]["disciplina"] == d,"duplo_periodo"].iloc[0]
+                    if duplo == "sim":
+                        for h1 in H:
+                            for h2 in H:
+                                if h2 > h1 + 1:
+                                    horario.Add(x[(t, d, i, h1)] + x[(t, d, i, h2)] <= 1)
+
+    restricao_com_duplo_periodo()
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    3. Em cada tempo, um professor tem no máximo uma aula, somando todas as suas disciplinas e turmas
+
+    pode expressar-se da seguinte forma:
     """)
     return
 
