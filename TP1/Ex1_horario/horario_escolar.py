@@ -100,27 +100,39 @@ def _(mo):
 
     dados = ler_dados("dados")
     mo.vstack([dados["disciplinas"], dados["disponibilidade"], dados["salas"], dados["turmas"]])
-    return
+    return (dados,)
 
 
 @app.cell
-def _():
-    def _(dados): 
-        from ortools.sat.python import cp_model
+def _(dados):
+    from ortools.sat.python import cp_model
 
-        turmas = dados["turmas"]["turma"].toList()
-        disciplinas = dados["disciplinas"]["disciplina"].tolist()
-        dias = ["Seg", "Ter", "Qua", "Qui", "Sex"]
-        tempos = range(1, 6)
+    turmas = dados["turmas"]["turma"].tolist()
+    disciplinas = dados["disciplinas"]["disciplina"].tolist()
+    dias = ["Seg", "Ter", "Qua", "Qui", "Sex"]
+    tempos = range(1, 6)
 
-        modelo = cp_model.CpModel()
+    modelo = cp_model.CpModel()
 
-        x = {
-            (t, d, dia, h): modelo.NewBoolVar(f"x_{t}_{d}_{dia}_{h}")
-            for t in turmas for d in disciplinas for dia in dias for h in tempos
-            }
-        return cp_model, dias, disciplinas, modelo, tempos, turmas, x
+    x = {
+        (t, d, i, h): modelo.NewBoolVar(f"x_{t}_{d}_{i}_{h}")
+           for t in turmas for d in disciplinas for i in dias for h in tempos
+        }
+    return
 
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    Passamos agora à modelação das restrições.
+
+    A restrição:
+    1. Uma turma não tem duas aulas em simultâneo
+
+    pode expressar-se da seguinte forma:
+
+    $$\forall_{t< T} \cdot \forall_{i< I} \cdot \forall_{h< H} \cdot \quad \sum_{d< D} x_{t,d,i,h} \leq 1$$
+    """)
     return
 
 
