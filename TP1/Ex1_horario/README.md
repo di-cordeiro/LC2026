@@ -32,13 +32,13 @@ marimo run horario_escolar.py     # para ver como aplicação
 ## Plano de Trabalho 
 
 **1. Dados**
-- [ ] Ler os 4 CSV e validar o formato
+- [x] Ler os 4 CSV e validar o formato
 - [ ] Escolher a pasta (`dados/` ou `dados_v2/`) sem mexer no código
 
 **2. Modelo base (R1-R7)**
-- [ ] Variáveis e restrições no CP-SAT
-- [ ] Blocos duplos e salas especiais
-- [ ] Primeiro horário válido `H0`
+- [x] Variáveis e restrições no CP-SAT
+- [x] Blocos duplos e salas especiais
+- [x] Primeiro horário válido `H0`
 
 **3. Validador independente**
 - [ ] Função que confirma R1-R8 sobre um horário já gerado

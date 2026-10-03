@@ -374,5 +374,169 @@ def _(D, H, I, T, solver, x):
     return
 
 
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ### Validação do Horário
+
+    O solver devolve sempre um horário que cumpre o modelo que lhe demos, mas isso não garante que o modelo esteja bem escrito: uma restrição esquecida ou mal formulada passa despercebida. Por isso escrevemos um **validador independente**, `verificar`, que recebe os dados e um horário já gerado e confirma, regra a regra, que o horário cumpre o enunciado.
+
+    O validador não usa o modelo CP-SAT nem as suas variáveis: relê os dados dos ficheiros CSV e recalcula tudo a partir do próprio horário. Devolve a lista de violações encontradas, e uma lista vazia significa que o horário é válido.
+
+    #### Testes do validador
+
+    Um validador que nunca falha não prova nada. Por isso, para cada requisito, partimos de um horário válido, introduzimos de propósito uma violação desse requisito e confirmamos que `verificar` a deteta. Confirmamos também que o horário gerado pelo solver não tem nenhuma violação.
+
+    #### Dados diferentes
+
+    Para mostrar que nada está escrito diretamente no código (R8), repetimos o fluxo completo com um conjunto de dados diferente, em `dados_teste/`, com uma turma e uma disciplina a mais e outra exceção de disponibilidade. Só muda o nome da pasta lida.
+    """)
+    return
+
+
+@app.cell
+def _verificar(pd):
+    def verificar(dados, sol):
+        erros = []
+        T = dados["turmas"]["turma"].tolist()
+        D = dados["disciplinas"]["disciplina"].tolist()
+        I = ["Seg", "Ter", "Qua", "Qui", "Sex"]
+        H = range(1, 6)
+        carga = dict(zip(dados["disciplinas"]["disciplina"], dados["disciplinas"]["carga_semanal"]))
+        dupla = {d: (v == "sim") for d, v in zip(dados["disciplinas"]["disciplina"], dados["disciplinas"]["duplo_periodo"])}
+        professor = dict(zip(dados["disciplinas"]["disciplina"], dados["disciplinas"]["professor"]))
+        P = sorted(set(professor.values()))
+        indisponivel = set(zip(dados["disponibilidade"]["professor"], dados["disponibilidade"]["dia"], dados["disponibilidade"]["periodo"]))
+        quantidade_salas = dict(zip(dados["salas"]["sala"], dados["salas"]["quantidade"]))
+        sala_normal = dados["salas"].loc[dados["salas"]["tipo"] == "normal", "sala"].iloc[0]
+        sala = {d: (sala_normal if pd.isna(esp) else esp)
+                for d, esp in zip(dados["disciplinas"]["disciplina"], dados["disciplinas"]["sala_especial"])
+               }
+
+        # R1: turma sem duas aulas em simultâneo
+        for t in T:
+            for i in I:
+                for h in H:
+                    if sum(sol[(t, d, i, h)] for d in D) > 1:
+                        erros.append(("R1", t, i, h))
+
+        # R2: carga semanal exata
+        for t in T:
+            for d in D: 
+                total = sum(sol[(t,d,i,h)] for i in I for h in H) 
+                if total != int(carga[d]):
+                    erros.append(("R2", t, d, total, int(carga[d])))
+
+        # R3: disciplinas sem duplo período
+        for i in I:
+            for t in T:
+                for d in D:
+                    if not dupla[d]:
+                        if (sum(sol[(t, d, i, h)] for h in H) > 1):
+                            erros.append(("R3", i, t, d))
+
+        # R4: disciplinas de duplo período
+        for i in I:
+            for t in T:
+                for d in D:
+                    if dupla[d]:
+                        ocupados = [h for h in H if sol[(t, d, i, h)] == 1]
+                        valido = len(ocupados) == 0 or (len(ocupados) == 2 and ocupados[1] == ocupados[0] + 1)
+                        if not valido:
+                            erros.append(("R4", i, t, d, ocupados))
+                
+        # R5: no máximo uma aula por tempo por professor
+        for p in P:
+            for i in I:
+                for h in H:
+                    if (sum(sol[(t,d,i,h)] for t in T for d in D if professor[d] == p) > 1):
+                        erros.append(("R5", p, i, h))
+
+        # R6: nenhuma aula do professor quando está indisponível
+        for t in T:
+            for d in D:
+                for i in I:
+                    for h in H:
+                        if(professor[d],i,h) in indisponivel and (sol[(t,d,i,h)] == 1):
+                            erros.append(("R6", t, d, i, h))
+
+        # R7: o número de aulas num tipo de sala não excede a quantidade de salas
+        for s in quantidade_salas:
+            for i in I:
+                for h in H:
+                    if (sum(sol[(t,d,i,h)] for t in T for d in D if sala[d] == s) > quantidade_salas[s]):
+                        erros.append(("R7", s, i, h))
+
+        return erros
+    
+
+    return (verificar,)
+
+
+@app.cell
+def _(solver, x):
+    sol = {chave: solver.Value(var) for chave, var in x.items()}
+    return (sol,)
+
+
+@app.cell
+def _(dados, sol, verificar):
+    verificar(dados, sol)
+    return
+
+
+@app.cell
+def _(dados, sol, verificar):
+    def test_horario_valido():
+        assert verificar(dados, sol) == []
+
+
+    def test_R1():
+        mal = dict(sol)
+        mal[("7ºA", "Matemática", "Seg", 1)] = 1
+        mal[("7ºA", "Português", "Seg", 1)] = 1
+        assert any(e[0] == "R1" for e in verificar(dados, mal))
+
+    def test_R2():
+        mal = dict(sol)
+        for i in ["Seg", "Ter", "Qua", "Qui", "Sex"]:
+            for h in range(1, 6):
+                mal[("7ºA", "Matemática", i, h)] = 0
+        assert any(e[0] == "R2" for e in verificar(dados, mal))
+
+    def test_R3():
+        mal = dict(sol)
+        mal[("7ºA", "Matemática", "Seg", 1)] = 1
+        mal[("7ºA", "Matemática", "Seg", 2)] = 1
+        assert any(e[0] == "R3" for e in verificar(dados, mal))
+
+    def test_R4():
+        mal = dict(sol)
+        for h in range(1, 6):
+            mal[("7ºA", "Educação Física", "Seg", h)] = 0
+            mal[("7ºA", "Educação Física", "Seg", 4)] = 1 
+        assert any(e[0] == "R4" for e in verificar(dados, mal))
+
+    def test_R5():
+        mal = dict(sol)
+        mal[("7ºA", "Matemática", "Seg", 1)] = 1
+        mal[("7ºB", "Matemática", "Seg", 1)] = 1
+        assert any(e[0] == "R5" for e in verificar(dados, mal))
+
+    def test_R6():
+        mal = dict(sol)
+        mal[("7ºA", "Educação Física", "Seg", 1)] = 1
+        assert any(e[0] == "R6" for e in verificar(dados, mal))
+
+    def test_R7():
+        mal = dict(sol)
+        mal[("7ºA", "Ciências", "Seg", 1)] = 1
+        mal[("7ºB", "Ciências", "Seg", 1)] = 1
+        assert any(e[0] == "R7" for e in verificar(dados, mal))
+
+
+    return
+
+
 if __name__ == "__main__":
     app.run()
