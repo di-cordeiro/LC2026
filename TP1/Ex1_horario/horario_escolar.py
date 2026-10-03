@@ -295,13 +295,6 @@ def restricao_blocos_consecutivos(modelo,x,p):
                         modelo.Add(x[(t,d,i,h)] <= sum(viz))
 
 
-@app.function
-def contar(f, modelo, x, p):
-    antes = len(modelo.Proto().constraints)
-    f(modelo, x, p)
-    print(f.__name__, len(modelo.Proto().constraints) - antes)
-
-
 @app.cell
 def _(cp_model, lista_de_dados):
     def construir_modelo(dados):
@@ -321,62 +314,6 @@ def _(cp_model, lista_de_dados):
         return modelo, x
 
     return (construir_modelo,)
-
-
-@app.cell
-def _(cp_model, dados, lista_de_dados):
-    def modelo_vazio(dados):
-        p = lista_de_dados(dados)
-        modelo = cp_model.CpModel()
-        x = {(t, d, i, h): modelo.NewBoolVar(f"x_{t}_{d}_{i}_{h}")
-             for t in p["T"] for d in p["D"] for i in p["I"] for h in p["H"]}
-        return modelo, x, p
-
-    _modelo, _x, _p = modelo_vazio(dados)
-    contar(restricao_sem_aulas_simultaneo, _modelo, _x, _p)
-    contar(restricao_sem_duplo_periodo, _modelo, _x, _p)
-    contar(restricao_com_duplo_periodo, _modelo, _x, _p)
-    contar(restricao_professor_maximo_uma_aula_por_tempo, _modelo, _x, _p)
-    contar(restricao_professor_indisponivel, _modelo, _x, _p)
-    contar(restricao_salas, _modelo, _x, _p)
-    contar(restricao_carga_semanal, _modelo, _x, _p)
-    contar(restricao_blocos_consecutivos, _modelo, _x, _p)
-    return
-
-
-@app.cell
-def _(cp_model):
-    def resolver(modelo, x):
-        solver = cp_model.CpSolver()
-        estado = solver.Solve(modelo)
-        if solver.StatusName(estado) not in ("OPTIMAL", "FEASIBLE"):
-            return None
-        return {chave: solver.Value(var) for chave, var in x.items()}
-
-    return (resolver,)
-
-
-@app.cell
-def _(construir_modelo, dados, resolver):
-    modelo, x = construir_modelo(dados)
-    sol = resolver(modelo, x)
-    print("Nº de restrições:", len(modelo.Proto().constraints))
-    return (sol,)
-
-
-@app.cell
-def _(dados, lista_de_dados, sol):
-    _p = lista_de_dados(dados)
-    for t in _p["T"]:
-        print(t)
-        for h in _p["H"]:
-            linha = []
-            for i in _p["I"]:
-                aula = [d for d in _p["D"] if sol[(t, d, i, h)] == 1]
-                linha.append(aula[0] if aula else "-")
-            print(f"{h}º tempo:", " | ".join(f"{a:<16}" for a in linha))
-        print()
-    return
 
 
 @app.cell(hide_code=True)
@@ -534,6 +471,109 @@ def _(dados, sol, verificar):
         assert any(e[0] == "R7" for e in verificar(dados, mal))
 
 
+    return
+
+
+@app.function
+def menos_buracos(modelo,x,p):
+    buracos = []
+    for prof in sorted(set(p["professor"].values())):
+        for i in p["I"]:
+            a = {}
+            for h in p["H"]:
+                a[h] = modelo.NewBoolVar(f"a_{prof}_{i}_{h}")
+                modelo.Add(a[h] == sum(x[(t, d, i, h)] for t in p["T"] for d in p["D"] if p["professor"][d] == prof))
+            for h in p["H"]:
+                antes = modelo.NewBoolVar(f"antes_{prof}_{i}_{h}")
+                depois = modelo.NewBoolVar(f"depois_{prof}_{i}_{h}")
+                for k in p["H"]:
+                    if k < h:
+                        modelo.Add(antes >= a[k])
+                    if k > h:
+                        modelo.Add(depois >= a[k])
+                b = modelo.NewBoolVar(f"b_{prof}_{i}_{h}")
+                modelo.Add(b >= depois + antes - a[h] - 1)
+                buracos.append(b)
+    modelo.Minimize(sum(buracos))
+
+
+@app.cell
+def _(cp_model):
+    def resolver(modelo, x):
+        solver = cp_model.CpSolver()
+        estado = solver.Solve(modelo)
+        if solver.StatusName(estado) not in ("OPTIMAL", "FEASIBLE"):
+            return None
+        return {chave: solver.Value(var) for chave, var in x.items()}
+
+    return (resolver,)
+
+
+@app.function
+def contar(f, modelo, x, p):
+    antes = len(modelo.Proto().constraints)
+    f(modelo, x, p)
+    print(f.__name__, len(modelo.Proto().constraints) - antes)
+
+
+@app.cell
+def _(cp_model, dados, lista_de_dados):
+    def modelo_vazio(dados):
+        p = lista_de_dados(dados)
+        modelo = cp_model.CpModel()
+        x = {(t, d, i, h): modelo.NewBoolVar(f"x_{t}_{d}_{i}_{h}")
+             for t in p["T"] for d in p["D"] for i in p["I"] for h in p["H"]}
+        return modelo, x, p
+
+    _modelo, _x, _p = modelo_vazio(dados)
+    contar(restricao_sem_aulas_simultaneo, _modelo, _x, _p)
+    contar(restricao_sem_duplo_periodo, _modelo, _x, _p)
+    contar(restricao_com_duplo_periodo, _modelo, _x, _p)
+    contar(restricao_professor_maximo_uma_aula_por_tempo, _modelo, _x, _p)
+    contar(restricao_professor_indisponivel, _modelo, _x, _p)
+    contar(restricao_salas, _modelo, _x, _p)
+    contar(restricao_carga_semanal, _modelo, _x, _p)
+    contar(restricao_blocos_consecutivos, _modelo, _x, _p)
+    return
+
+
+@app.cell
+def _(construir_modelo, dados, lista_de_dados, resolver):
+    modelo, x = construir_modelo(dados)
+    menos_buracos(modelo, x, lista_de_dados(dados))
+    sol = resolver(modelo, x)
+    print("Nº de restrições:", len(modelo.Proto().constraints))
+    return (sol,)
+
+
+@app.cell
+def _(dados, lista_de_dados, sol):
+    _p = lista_de_dados(dados)
+    for t in _p["T"]:
+        print(t)
+        for h in _p["H"]:
+            linha = []
+            for i in _p["I"]:
+                aula = [d for d in _p["D"] if sol[(t, d, i, h)] == 1]
+                linha.append(aula[0] if aula else "-")
+            print(f"{h}º tempo:", " | ".join(f"{a:<16}" for a in linha))
+        print()
+    return
+
+
+@app.cell
+def _(dados, lista_de_dados, sol):
+    def contar_buracos(sol, p):
+        total = 0
+        for prof in set(p["professor"].values()):
+            for i in p["I"]:
+                ocupados = [h for h in p["H"] if sum(sol[(t, d, i, h)] for t in p["T"] for d in p["D"]
+                                                      if p["professor"][d] == prof) > 0]
+                if ocupados:
+                    total += (max(ocupados) - min(ocupados) + 1) - len(ocupados)
+        return total
+
+    contar_buracos(sol, lista_de_dados(dados))
     return
 
 
