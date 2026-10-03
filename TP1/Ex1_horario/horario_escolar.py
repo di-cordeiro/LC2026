@@ -104,37 +104,33 @@ def _(mo):
 
 
 @app.cell
-def _(dados):
-    from ortools.sat.python import cp_model
-
-    T = dados["turmas"]["turma"].tolist()
-    D = dados["disciplinas"]["disciplina"].tolist()
-    I = ["Seg", "Ter", "Qua", "Qui", "Sex"]
-    H = range(1, 6)
-
-    horario = cp_model.CpModel()
-
-    x = {
-        (t, d, i, h): horario.NewBoolVar(f"x_{t}_{d}_{i}_{h}")
-           for t in T for d in D for i in I for h in H
+def _(pd):
+    def lista_de_dados(dados):
+        disc = dados["disciplinas"]
+        sala_normal = dados["salas"].loc[dados["salas"]["tipo"] == "normal", "sala"].iloc[0]
+        return {
+            "T": dados["turmas"]["turma"].tolist(),
+            "D": disc["disciplina"].tolist(),
+            "I": ["Seg", "Ter", "Qua", "Qui", "Sex"],
+            "H": range(1, 6),
+            "professor": dict(zip(disc["disciplina"], disc["professor"])),
+            "dupla": dict(zip(disc["disciplina"], disc["duplo_periodo"] == "sim")),
+            "carga": dict(zip(disc["disciplina"], disc["carga_semanal"].astype(int))),
+            "sala": {d: (sala_normal if pd.isna(e) else e)
+                     for d, e in zip(disc["disciplina"], disc["sala_especial"])},
+            "quantidade_salas": dict(zip(dados["salas"]["sala"], dados["salas"]["quantidade"])),
+            "indisponivel": set(zip(dados["disponibilidade"]["professor"], dados["disponibilidade"]["dia"],dados["disponibilidade"]["periodo"])),
         }
-    return D, H, I, T, cp_model, horario, x
+
+    return (lista_de_dados,)
 
 
 @app.cell
-def _(dados, pd):
-    # Dados auxiliares para restrições
-    dupla = dict(zip(dados["disciplinas"]["disciplina"], dados["disciplinas"]["duplo_periodo"] == "sim"))
-    professor = dict(zip(dados["disciplinas"]["disciplina"], dados["disciplinas"]["professor"]))
-    P = sorted(set(professor.values()))
-    indisponivel = set(zip(dados["disponibilidade"]["professor"], dados["disponibilidade"]["dia"], dados["disponibilidade"]["periodo"]))
-    quantidade_salas = dict(zip(dados["salas"]["sala"], dados["salas"]["quantidade"]))
-    sala_normal = dados["salas"].loc[dados["salas"]["tipo"] == "normal", "sala"].iloc[0]
-    sala = {d: (sala_normal if pd.isna(esp) else esp)
-           for d, esp in zip(dados["disciplinas"]["disciplina"], dados["disciplinas"]["sala_especial"])
-           }
-    carga = dict(zip(dados["disciplinas"]["disciplina"], dados["disciplinas"]["carga_semanal"]))
-    return P, carga, dupla, indisponivel, professor, quantidade_salas, sala
+def _():
+    from ortools.sat.python import cp_model
+
+    horario = cp_model.CpModel()
+    return (cp_model,)
 
 
 @app.cell(hide_code=True)
@@ -152,15 +148,12 @@ def _(mo):
     return
 
 
-@app.cell
-def _(D, H, I, T, horario, x):
-    def restricao_sem_aulas_simultaneo():
-        for t in T:
-            for i in I:
-                for h in H:
-                    horario.Add(sum(x[(t,d,i,h)] for d in D) <= 1)
-
-    return (restricao_sem_aulas_simultaneo,)
+@app.function
+def restricao_sem_aulas_simultaneo(modelo,x,p):
+    for t in p["T"]:
+        for i in p["I"]:
+            for h in p["H"]:
+                modelo.Add(sum(x[(t,d,i,h)] for d in p["D"]) <= 1)
 
 
 @app.cell(hide_code=True)
@@ -178,31 +171,25 @@ def _(mo):
     return
 
 
-@app.cell
-def _(D, H, I, T, dupla, horario, x):
-    def restricao_sem_duplo_periodo():
-        for i in I:
-            for t in T:
-                for d in D:
-                    if not dupla[d]:
-                        horario.Add(sum(x[(t, d, i, h)] for h in H) <= 1)
-
-    return (restricao_sem_duplo_periodo,)
+@app.function
+def restricao_sem_duplo_periodo(modelo,x,p):
+    for i in p["I"]:
+        for t in p["T"]:
+            for d in p["D"]:
+                if not p["dupla"][d]:
+                    modelo.Add(sum(x[(t, d, i, h)] for h in p["H"]) <= 1)
 
 
-@app.cell
-def _(D, H, I, T, dupla, horario, x):
-    def restricao_com_duplo_periodo():
-        for i in I:
-            for t in T:
-                for d in D:
-                    if dupla[d]:
-                        for h1 in H:
-                            for h2 in H:
-                                if h2 > h1 + 1:
-                                    horario.Add(x[(t, d, i, h1)] + x[(t, d, i, h2)] <= 1)
-
-    return (restricao_com_duplo_periodo,)
+@app.function
+def restricao_com_duplo_periodo(modelo,x,p):
+    for i in p["I"]:
+        for t in p["T"]:
+            for d in p["D"]:
+                if p["dupla"][d]:
+                    for h1 in p["H"]:
+                        for h2 in p["H"]:
+                            if h2 > h1 + 1:
+                                modelo.Add(x[(t, d, i, h1)] + x[(t, d, i, h2)] <= 1)
 
 
 @app.cell(hide_code=True)
@@ -217,15 +204,12 @@ def _(mo):
     return
 
 
-@app.cell
-def _(D, H, I, P, T, horario, professor, x):
-    def restricao_professor_maximo_uma_aula_por_tempo():
-        for p in P:
-            for i in I:
-                for h in H:
-                    horario.Add(sum(x[(t,d,i,h)] for t in T for d in D if professor[d] == p) <= 1)
-
-    return (restricao_professor_maximo_uma_aula_por_tempo,)
+@app.function
+def restricao_professor_maximo_uma_aula_por_tempo(modelo,x,p):
+    for prof in sorted(set(p["professor"].values())):
+        for i in p["I"]:
+            for h in p["H"]:
+                modelo.Add(sum(x[(t,d,i,h)] for t in p["T"] for d in p["D"] if p["professor"][d] == prof) <= 1)
 
 
 @app.cell(hide_code=True)
@@ -240,17 +224,14 @@ def _(mo):
     return
 
 
-@app.cell
-def _(D, H, I, T, horario, indisponivel, professor, x):
-    def restricao_professor_indisponivel():
-        for t in T:
-            for d in D:
-                for i in I:
-                    for h in H:
-                        if(professor[d],i,h) in indisponivel:
-                            horario.Add(x[(t,d,i,h)] == 0)
-
-    return (restricao_professor_indisponivel,)
+@app.function
+def restricao_professor_indisponivel(modelo,x,p):
+    for t in p["T"]:
+        for d in p["D"]:
+            for i in p["I"]:
+                for h in p["H"]:
+                    if(p["professor"][d],i,h) in p["indisponivel"]:
+                        modelo.Add(x[(t,d,i,h)] == 0)
 
 
 @app.cell(hide_code=True)
@@ -264,15 +245,12 @@ def _(mo):
     return
 
 
-@app.cell
-def _(D, H, I, T, horario, quantidade_salas, sala, x):
-    def restricao_salas():
-        for s in quantidade_salas:
-            for i in I:
-                for h in H:
-                    horario.Add(sum(x[(t,d,i,h)] for t in T for d in D if sala[d] == s) <= quantidade_salas[s])
-
-    return (restricao_salas,)
+@app.function
+def restricao_salas(modelo,x,p):
+    for s in p["quantidade_salas"]:
+        for i in p["I"]:
+            for h in p["H"]:
+                modelo.Add(sum(x[(t,d,i,h)] for t in p["T"] for d in p["D"] if p["sala"][d] == s) <= p["quantidade_salas"][s])
 
 
 @app.cell(hide_code=True)
@@ -287,14 +265,11 @@ def _(mo):
     return
 
 
-@app.cell
-def _(D, H, I, T, carga, horario, x):
-    def restricao_carga_semanal():
-        for t in T:
-            for d in D: 
-                horario.Add(sum(x[(t,d,i,h)] for i in I for h in H) == int(carga[d]))
-
-    return (restricao_carga_semanal,)
+@app.function
+def restricao_carga_semanal(modelo,x,p):
+    for t in p["T"]:
+        for d in p["D"]: 
+            modelo.Add(sum(x[(t,d,i,h)] for i in p["I"] for h in p["H"]) == int(p["carga"][d]))
 
 
 @app.cell(hide_code=True)
@@ -309,65 +284,95 @@ def _(mo):
     return
 
 
+@app.function
+def restricao_blocos_consecutivos(modelo,x,p):
+    for t in p["T"]:
+        for d in p["D"]:
+            if p["dupla"][d]:
+                for i in p["I"]:
+                    for h in p["H"]:
+                        viz = [x[(t,d,i,k)] for k in (h-1, h+1) if k in p["H"]]
+                        modelo.Add(x[(t,d,i,h)] <= sum(viz))
+
+
+@app.function
+def contar(f, modelo, x, p):
+    antes = len(modelo.Proto().constraints)
+    f(modelo, x, p)
+    print(f.__name__, len(modelo.Proto().constraints) - antes)
+
+
 @app.cell
-def _(D, H, I, T, dupla, horario, x):
-    def restricao_blocos_consecutivos():
-        for t in T:
-            for d in D:
-                if dupla[d]:
-                    for i in I:
-                        for h in H:
-                            viz = [x[(t,d,i,k)] for k in (h-1, h+1) if k in H]
-                            horario.Add(x[(t,d,i,h)] <= sum(viz))
+def _(cp_model, lista_de_dados):
+    def construir_modelo(dados):
+        p = lista_de_dados(dados)
+        modelo = cp_model.CpModel()
+        x = {(t, d, i, h): modelo.NewBoolVar(f"x_{t}_{d}_{i}_{h}")
+             for t in p["T"] for d in p["D"] for i in p["I"] for h in p["H"]}
 
-    return (restricao_blocos_consecutivos,)
+        restricao_sem_aulas_simultaneo(modelo, x, p)
+        restricao_sem_duplo_periodo(modelo, x, p)
+        restricao_com_duplo_periodo(modelo, x, p)
+        restricao_professor_maximo_uma_aula_por_tempo(modelo, x, p)
+        restricao_professor_indisponivel(modelo, x, p)
+        restricao_salas(modelo, x, p)
+        restricao_carga_semanal(modelo, x, p)
+        restricao_blocos_consecutivos(modelo, x, p)
+        return modelo, x
+
+    return (construir_modelo,)
 
 
 @app.cell
-def _(
-    horario,
-    restricao_blocos_consecutivos,
-    restricao_carga_semanal,
-    restricao_com_duplo_periodo,
-    restricao_professor_indisponivel,
-    restricao_professor_maximo_uma_aula_por_tempo,
-    restricao_salas,
-    restricao_sem_aulas_simultaneo,
-    restricao_sem_duplo_periodo,
-):
-    def contar(f):
-        antes = len(horario.Proto().constraints)
-        f()
-        print(f.__name__, len(horario.Proto().constraints) - antes)
+def _(cp_model, dados, lista_de_dados):
+    def modelo_vazio(dados):
+        p = lista_de_dados(dados)
+        modelo = cp_model.CpModel()
+        x = {(t, d, i, h): modelo.NewBoolVar(f"x_{t}_{d}_{i}_{h}")
+             for t in p["T"] for d in p["D"] for i in p["I"] for h in p["H"]}
+        return modelo, x, p
 
-    contar(restricao_sem_aulas_simultaneo)
-    contar(restricao_sem_duplo_periodo)
-    contar(restricao_com_duplo_periodo)
-    contar(restricao_professor_maximo_uma_aula_por_tempo)
-    contar(restricao_professor_indisponivel)
-    contar(restricao_salas)
-    contar(restricao_carga_semanal)
-    contar(restricao_blocos_consecutivos)
+    _modelo, _x, _p = modelo_vazio(dados)
+    contar(restricao_sem_aulas_simultaneo, _modelo, _x, _p)
+    contar(restricao_sem_duplo_periodo, _modelo, _x, _p)
+    contar(restricao_com_duplo_periodo, _modelo, _x, _p)
+    contar(restricao_professor_maximo_uma_aula_por_tempo, _modelo, _x, _p)
+    contar(restricao_professor_indisponivel, _modelo, _x, _p)
+    contar(restricao_salas, _modelo, _x, _p)
+    contar(restricao_carga_semanal, _modelo, _x, _p)
+    contar(restricao_blocos_consecutivos, _modelo, _x, _p)
     return
 
 
 @app.cell
-def _(cp_model, horario):
-    solver = cp_model.CpSolver()
-    estado = solver.Solve(horario)
-    print("Estado:", solver.StatusName(estado))
-    print("Nº de restrições:", len(horario.Proto().constraints))
-    return (solver,)
+def _(cp_model):
+    def resolver(modelo, x):
+        solver = cp_model.CpSolver()
+        estado = solver.Solve(modelo)
+        if solver.StatusName(estado) not in ("OPTIMAL", "FEASIBLE"):
+            return None
+        return {chave: solver.Value(var) for chave, var in x.items()}
+
+    return (resolver,)
 
 
 @app.cell
-def _(D, H, I, T, solver, x):
-    for t in T:
+def _(construir_modelo, dados, resolver):
+    modelo, x = construir_modelo(dados)
+    sol = resolver(modelo, x)
+    print("Nº de restrições:", len(modelo.Proto().constraints))
+    return (sol,)
+
+
+@app.cell
+def _(dados, lista_de_dados, sol):
+    _p = lista_de_dados(dados)
+    for t in _p["T"]:
         print(t)
-        for h in H:
+        for h in _p["H"]:
             linha = []
-            for i in I:
-                aula = [d for d in D if solver.Value(x[(t, d, i, h)]) == 1]
+            for i in _p["I"]:
+                aula = [d for d in _p["D"] if sol[(t, d, i, h)] == 1]
                 linha.append(aula[0] if aula else "-")
             print(f"{h}º tempo:", " | ".join(f"{a:<16}" for a in linha))
         print()
@@ -444,7 +449,7 @@ def _verificar(pd):
                         valido = len(ocupados) == 0 or (len(ocupados) == 2 and ocupados[1] == ocupados[0] + 1)
                         if not valido:
                             erros.append(("R4", i, t, d, ocupados))
-    
+
         # R5: no máximo uma aula por tempo por professor
         for p in P:
             for i in I:
@@ -471,12 +476,6 @@ def _verificar(pd):
 
 
     return (verificar,)
-
-
-@app.cell
-def _(solver, x):
-    sol = {chave: solver.Value(var) for chave, var in x.items()}
-    return (sol,)
 
 
 @app.cell
