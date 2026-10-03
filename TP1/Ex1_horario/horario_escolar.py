@@ -97,8 +97,8 @@ def _(mo):
             "salas": pd.read_csv(pasta / "salas.csv"),
             "turmas": pd.read_csv(pasta / "turmas.csv")
         }
-
-    dados = ler_dados("dados")
+    pasta_dados = "dados" # posso por "dados", "dados_v2" ou "dados_teste"
+    dados = ler_dados(pasta_dados)
     mo.vstack([dados["disciplinas"], dados["disponibilidade"], dados["salas"], dados["turmas"]])
     return dados, pd
 
@@ -444,7 +444,7 @@ def _verificar(pd):
                         valido = len(ocupados) == 0 or (len(ocupados) == 2 and ocupados[1] == ocupados[0] + 1)
                         if not valido:
                             erros.append(("R4", i, t, d, ocupados))
-                
+    
         # R5: no máximo uma aula por tempo por professor
         for p in P:
             for i in I:
@@ -468,7 +468,7 @@ def _verificar(pd):
                         erros.append(("R7", s, i, h))
 
         return erros
-    
+
 
     return (verificar,)
 
