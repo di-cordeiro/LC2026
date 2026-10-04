@@ -295,27 +295,6 @@ def restricao_blocos_consecutivos(modelo,x,p):
                         modelo.Add(x[(t,d,i,h)] <= sum(viz))
 
 
-@app.cell
-def _(cp_model, lista_de_dados):
-    def construir_modelo(dados):
-        p = lista_de_dados(dados)
-        modelo = cp_model.CpModel()
-        x = {(t, d, i, h): modelo.NewBoolVar(f"x_{t}_{d}_{i}_{h}")
-             for t in p["T"] for d in p["D"] for i in p["I"] for h in p["H"]}
-
-        restricao_sem_aulas_simultaneo(modelo, x, p)
-        restricao_sem_duplo_periodo(modelo, x, p)
-        restricao_com_duplo_periodo(modelo, x, p)
-        restricao_professor_maximo_uma_aula_por_tempo(modelo, x, p)
-        restricao_professor_indisponivel(modelo, x, p)
-        restricao_salas(modelo, x, p)
-        restricao_carga_semanal(modelo, x, p)
-        restricao_blocos_consecutivos(modelo, x, p)
-        return modelo, x
-
-    return (construir_modelo,)
-
-
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
@@ -474,6 +453,46 @@ def _(dados, sol, verificar):
     return
 
 
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ### Objetivo: minimizar o buraco dos professores
+
+    Um **buraco** é um tempo livre de um professor, no meio do dia, com pelo menos uma aula antes e uma aula depois. Os tempos livres no início ou no fim do dia não contam.
+
+    Para os contar dentro do modelo, introduzimos três famílias de variáveis binárias, para cada professor $p$, dia $i$ e tempo $h$:
+
+    - $a_{p,i,h}$ vale 1 se o professor $p$ tem aula no tempo $h$ no dia $i$;
+    - $m_{p,i,h}$ vale 1 se o professor {p} tem uma aula num tempo anterior a {h}, nesse dia;
+    - $n_{p,i,h}$ vale 1 se o professor {p} tem uma aula num tempo posterior a {h}, nesse dia.
+
+    O valor de $a$ obtém-se somando as aulas de todas as disciplinas do professor, em todas as turmas:
+
+    $$a_{p,i,h} = \sum_{t<T}\ \sum_{d<D,\;p(d)=p} x_{t,d,i,h}$$
+
+    As variáveis $m$ e $n$ ficam limitadas inferiormente pelos tempos em causa:
+
+    $$\forall_{k<h} \cdot m_{p,i,h} \geq a_{p,i,k} \qquad\qquad\forall_{k>h} \cdot n_{p,i,h} \geq a_{p,i,k}$$
+
+    Basta o limite inferior: se houver aula antes, $m$ é forçada a 1, e o solver nunca ganha em pô-la a 1 sem necessidade, porque isso só pode aumentar os buracos.
+
+    Introduzimos ainda uma variável binária $b_{p,i,h}$ por tempo, que indica um buraco. Há buraco quando existe aula antes, existe aula depois e não existe aula no próprio tempo:
+
+    $$b_{p,i,h} \geq m_{p,i,h} + n_{p,i,h} - a_{p,i,h} - 1$$
+
+    Quando as três condições se verificam, o lado direito vale 1 e $b$ é forçada a 1. Nos outros casos vale 0 ou menos, e $b$ pode ser 0. Em particular, um dia sem aulas do professor não conta buracos.
+
+    O objetivo é minimizar o número total de buracos:
+
+    $$\min \sum_{p<P}\ \sum_{i<I}\ \sum_{h<H} b_{p,i,h}$$
+
+    Esta função objetivo não altera as restrições: apenas escolhe, entre os horários válidos, os que têm menos buracos. Por isso o horário continua a passar no validador.
+
+    **Verificação independente.** Para confirmar o resultado sem usar o modelo, a função `contar_buracos` percorre o horário já gerado e, para cada professor e dia, calcula o intervalo entre a primeira e a última aula menos o número de aulas.
+    """)
+    return
+
+
 @app.function
 def menos_buracos(modelo,x,p):
     buracos = []
@@ -495,6 +514,30 @@ def menos_buracos(modelo,x,p):
                 modelo.Add(b >= depois + antes - a[h] - 1)
                 buracos.append(b)
     modelo.Minimize(sum(buracos))
+
+
+@app.cell
+def _(cp_model, lista_de_dados):
+    def construir_modelo(dados, com_objetivo = True):
+        p = lista_de_dados(dados)
+        modelo = cp_model.CpModel()
+        x = {(t, d, i, h): modelo.NewBoolVar(f"x_{t}_{d}_{i}_{h}")
+             for t in p["T"] for d in p["D"] for i in p["I"] for h in p["H"]}
+
+        restricao_sem_aulas_simultaneo(modelo, x, p)
+        restricao_sem_duplo_periodo(modelo, x, p)
+        restricao_com_duplo_periodo(modelo, x, p)
+        restricao_professor_maximo_uma_aula_por_tempo(modelo, x, p)
+        restricao_professor_indisponivel(modelo, x, p)
+        restricao_salas(modelo, x, p)
+        restricao_carga_semanal(modelo, x, p)
+        restricao_blocos_consecutivos(modelo, x, p)
+
+        if com_objetivo:
+            menos_buracos(modelo, x, p)
+        return modelo, x
+
+    return (construir_modelo,)
 
 
 @app.cell
@@ -538,27 +581,11 @@ def _(cp_model, dados, lista_de_dados):
 
 
 @app.cell
-def _(construir_modelo, dados, lista_de_dados, resolver):
+def _(construir_modelo, dados, resolver):
     modelo, x = construir_modelo(dados)
-    menos_buracos(modelo, x, lista_de_dados(dados))
     sol = resolver(modelo, x)
     print("Nº de restrições:", len(modelo.Proto().constraints))
     return (sol,)
-
-
-@app.cell
-def _(dados, lista_de_dados, sol):
-    _p = lista_de_dados(dados)
-    for t in _p["T"]:
-        print(t)
-        for h in _p["H"]:
-            linha = []
-            for i in _p["I"]:
-                aula = [d for d in _p["D"] if sol[(t, d, i, h)] == 1]
-                linha.append(aula[0] if aula else "-")
-            print(f"{h}º tempo:", " | ".join(f"{a:<16}" for a in linha))
-        print()
-    return
 
 
 @app.cell
@@ -574,6 +601,38 @@ def _(dados, lista_de_dados, sol):
         return total
 
     contar_buracos(sol, lista_de_dados(dados))
+    return (contar_buracos,)
+
+
+@app.cell
+def _(
+    construir_modelo,
+    contar_buracos,
+    dados,
+    lista_de_dados,
+    resolver,
+    sol,
+    verificar,
+):
+    _p = lista_de_dados(dados)
+
+    _m1, _x1 = construir_modelo(dados, com_objetivo=False)
+    _sol1 = resolver(_m1, _x1)
+    print("Sem objetivo:", contar_buracos(_sol1, _p), "buracos")
+
+    _m2, _x2 = construir_modelo(dados, com_objetivo=True)
+    _sol2 = resolver(_m2, _x2)
+    print("Com objetivo:", contar_buracos(_sol2, _p), "buracos")
+    print("Horário válido:", verificar(dados, _sol2) == [])
+    for t in _p["T"]:
+        print(t)
+        for h in _p["H"]:
+            linha = []
+            for i in _p["I"]:
+                aula = [d for d in _p["D"] if sol[(t, d, i, h)] == 1]
+                linha.append(aula[0] if aula else "-")
+            print(f"{h}º tempo:", " | ".join(f"{a:<16}" for a in linha))
+        print()
     return
 
 

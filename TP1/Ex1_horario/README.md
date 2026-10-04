@@ -26,7 +26,7 @@ marimo run horario_escolar.py     # para ver como aplicação
 | R7 | Sala do tipo certo e sem exceder a quantidade por tipo | x | x |
 | R8 | Dados sempre lidos dos CSV, nada escrito no código | x | x |
 | R9 | `H1` a partir de `H0`: mais rápido do que do zero e com poucas aulas alteradas | ☐ | ☐ |
-| O1 | Minimizar buracos dos professores (ótimo não obrigatório) | ☐ | ☐ |
+| O1 | Minimizar buracos dos professores (ótimo não obrigatório) | x | x |
 
 
 ## Plano de Trabalho 
@@ -46,8 +46,8 @@ marimo run horario_escolar.py     # para ver como aplicação
 - [x] Teste com um conjunto de dados diferente do fornecido
 
 **4. Objetivo (O1)**
-- [ ] Definir o que é um buraco e a função objetivo
-- [ ] Limite de tempo do solver
+- [x] Definir o que é um buraco e a função objetivo
+- [x] Limite de tempo do solver
 
 **5. Construção incremental (R9)**
 - [ ] `H1` a partir de `H0` com `dados_v2/`
