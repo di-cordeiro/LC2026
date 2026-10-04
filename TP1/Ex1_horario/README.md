@@ -17,14 +17,14 @@ marimo run horario_escolar.py     # para ver como aplicação
 
 | Req | O que exige | Feito | Testado |
 |---|---|:---:|:---:|
-| R1 | Turma sem duas aulas em simultâneo | ☐ | ☐ |
-| R2 | Carga semanal exata por disciplina e turma | ☐ | ☐ |
-| R3 | No máximo uma aula da disciplina por dia e turma (bloco duplo conta como uma) | ☐ | ☐ |
-| R4 | Duplo período: 2 tempos consecutivos, no mesmo dia | ☐ | ☐ |
-| R5 | Professor sem duas aulas em simultâneo | ☐ | ☐ |
-| R6 | Professor só dá aulas quando está disponível | ☐ | ☐ |
-| R7 | Sala do tipo certo e sem exceder a quantidade por tipo | ☐ | ☐ |
-| R8 | Dados sempre lidos dos CSV, nada escrito no código | ☐ | ☐ |
+| R1 | Turma sem duas aulas em simultâneo | x | x |
+| R2 | Carga semanal exata por disciplina e turma | x | x |
+| R3 | No máximo uma aula da disciplina por dia e turma (bloco duplo conta como uma) | x | x |
+| R4 | Duplo período: 2 tempos consecutivos, no mesmo dia | x | x |
+| R5 | Professor sem duas aulas em simultâneo | x | x |
+| R6 | Professor só dá aulas quando está disponível | x | x |
+| R7 | Sala do tipo certo e sem exceder a quantidade por tipo | x | x |
+| R8 | Dados sempre lidos dos CSV, nada escrito no código | x | x |
 | R9 | `H1` a partir de `H0`: mais rápido do que do zero e com poucas aulas alteradas | ☐ | ☐ |
 | O1 | Minimizar buracos dos professores (ótimo não obrigatório) | ☐ | ☐ |
 
@@ -32,18 +32,18 @@ marimo run horario_escolar.py     # para ver como aplicação
 ## Plano de Trabalho 
 
 **1. Dados**
-- [ ] Ler os 4 CSV e validar o formato
+- [x] Ler os 4 CSV e validar o formato
 - [ ] Escolher a pasta (`dados/` ou `dados_v2/`) sem mexer no código
 
 **2. Modelo base (R1-R7)**
-- [ ] Variáveis e restrições no CP-SAT
-- [ ] Blocos duplos e salas especiais
-- [ ] Primeiro horário válido `H0`
+- [x] Variáveis e restrições no CP-SAT
+- [x] Blocos duplos e salas especiais
+- [x] Primeiro horário válido `H0`
 
 **3. Validador independente**
-- [ ] Função que confirma R1-R8 sobre um horário já gerado
-- [ ] Um caso de teste por restrição
-- [ ] Teste com um conjunto de dados diferente do fornecido
+- [x] Função que confirma R1-R8 sobre um horário já gerado
+- [x] Um caso de teste por restrição
+- [x] Teste com um conjunto de dados diferente do fornecido
 
 **4. Objetivo (O1)**
 - [ ] Definir o que é um buraco e a função objetivo
