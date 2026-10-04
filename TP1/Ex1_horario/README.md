@@ -25,7 +25,7 @@ marimo run horario_escolar.py     # para ver como aplicação
 | R6 | Professor só dá aulas quando está disponível | x | x |
 | R7 | Sala do tipo certo e sem exceder a quantidade por tipo | x | x |
 | R8 | Dados sempre lidos dos CSV, nada escrito no código | x | x |
-| R9 | `H1` a partir de `H0`: mais rápido do que do zero e com poucas aulas alteradas | ☐ | ☐ |
+| R9 | `H1` a partir de `H0`: mais rápido do que do zero e com poucas aulas alteradas | x | x |
 | O1 | Minimizar buracos dos professores (ótimo não obrigatório) | x | x |
 
 
@@ -50,9 +50,9 @@ marimo run horario_escolar.py     # para ver como aplicação
 - [x] Limite de tempo do solver
 
 **5. Construção incremental (R9)**
-- [ ] `H1` a partir de `H0` com `dados_v2/`
-- [ ] Comparar `H1` do zero vs incremental: tempo e nº de aulas alteradas
-- [ ] Tratar outras alterações: disponibilidade, sala avariada, turma nova, professor substituído
+- [x] `H1` a partir de `H0` com `dados_v2/`
+- [x] Comparar `H1` do zero vs incremental: tempo e nº de aulas alteradas
+- [x] Tratar outras alterações: disponibilidade, sala avariada, turma nova, professor substituído
 
 **6. Apresentação e entrega**
 - [ ] Horário numa grelha semanal por turma

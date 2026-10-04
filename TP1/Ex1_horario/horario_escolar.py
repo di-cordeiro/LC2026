@@ -100,7 +100,7 @@ def _(mo):
     pasta_dados = "dados" # posso por "dados", "dados_v2" ou "dados_teste"
     dados = ler_dados(pasta_dados)
     mo.vstack([dados["disciplinas"], dados["disponibilidade"], dados["salas"], dados["turmas"]])
-    return dados, pd
+    return dados, ler_dados, pd
 
 
 @app.cell
@@ -494,7 +494,7 @@ def _(mo):
 
 
 @app.function
-def menos_buracos(modelo,x,p):
+def menos_buracos(modelo,x,p, extra=0):
     buracos = []
     for prof in sorted(set(p["professor"].values())):
         for i in p["I"]:
@@ -513,7 +513,23 @@ def menos_buracos(modelo,x,p):
                 b = modelo.NewBoolVar(f"b_{prof}_{i}_{h}")
                 modelo.Add(b >= depois + antes - a[h] - 1)
                 buracos.append(b)
-    modelo.Minimize(sum(buracos))
+    modelo.Minimize(sum(buracos) + extra)
+
+
+@app.cell
+def _(dados, lista_de_dados, sol):
+    def contar_buracos(sol, p):
+        total = 0
+        for prof in set(p["professor"].values()):
+            for i in p["I"]:
+                ocupados = [h for h in p["H"] if sum(sol[(t, d, i, h)] for t in p["T"] for d in p["D"]
+                                                      if p["professor"][d] == prof) > 0]
+                if ocupados:
+                    total += (max(ocupados) - min(ocupados) + 1) - len(ocupados)
+        return total
+
+    contar_buracos(sol, lista_de_dados(dados))
+    return (contar_buracos,)
 
 
 @app.cell
@@ -589,22 +605,6 @@ def _(construir_modelo, dados, resolver):
 
 
 @app.cell
-def _(dados, lista_de_dados, sol):
-    def contar_buracos(sol, p):
-        total = 0
-        for prof in set(p["professor"].values()):
-            for i in p["I"]:
-                ocupados = [h for h in p["H"] if sum(sol[(t, d, i, h)] for t in p["T"] for d in p["D"]
-                                                      if p["professor"][d] == prof) > 0]
-                if ocupados:
-                    total += (max(ocupados) - min(ocupados) + 1) - len(ocupados)
-        return total
-
-    contar_buracos(sol, lista_de_dados(dados))
-    return (contar_buracos,)
-
-
-@app.cell
 def _(
     construir_modelo,
     contar_buracos,
@@ -633,6 +633,163 @@ def _(
                 linha.append(aula[0] if aula else "-")
             print(f"{h}º tempo:", " | ".join(f"{a:<16}" for a in linha))
         print()
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ### Construção Incremental
+
+    Quando os recursos mudam ligeiramente, resolver o problema do zero tem dois problemas: é mais lento e, sobretudo, o solver escolhe um horário qualquer entre os que cumprem as regras, que costuma ser muito diferente do anterior. Para a escola isso significa mudar aulas que não precisavam de mudar.
+
+    A nossa abordagem usa o horário anterior $H_0$ de duas formas:
+
+    1. **Ponto de partida.** Sugerimos ao solver os valores de $H_0$ (`AddHint`), para começar a procura perto de uma solução conhecida.
+    2. **Custo por mudança.** Acrescentamos ao objetivo um termo que penaliza cada aula de $H_0$ que deixa de estar em $H_1$:
+
+    $$\min \;\; \text{peso}\cdot\sum_{(t,d,i,h)\,:\,x^0_{t,d,i,h}=1}\left(1-x^1_{t,d,i,h}\right) \;+\; \sum_{p,i,h} b_{p,i,h}$$
+
+    O `peso` (100) é muito maior do que o número de buracos que se pode ganhar, por isso a estabilidade tem prioridade sobre os buracos. Isto é uma escolha: aceitamos mais buracos se isso evitar mover uma aula.
+
+    O $H_1$ cumpre as mesmas regras R1–R7, porque usa o mesmo `construir_modelo` com os dados novos. As variáveis de $H_0$ que não existem no novo modelo (por exemplo, de uma turma que desapareceu) são ignoradas.
+
+    **Resultados** com `dados` → `dados_v2` (tempo médio de 5 execuções, só da resolução):
+
+    | | Tempo | Aulas alteradas | Válido |
+    |---|---|---|---|
+    | Do zero | 0,054 s | 25 | sim |
+    | Incremental | 0,038 s | 2 | sim |
+
+    O ganho principal é na estabilidade: o horário novo mantém quase tudo e muda 2 aulas, em vez de 25. A diferença de tempo existe mas é pequena, porque a instância é pequena e ambos os métodos resolvem em milissegundos. O benefício de velocidade só deve aparecer em instâncias maiores.
+
+    #### Outros cenários
+
+    Para mostrar que a abordagem não depende do cenário de `dados_v2`, aplicámo-la a mais alterações de recursos, todas feitas só sobre os dados, sem mexer no código:
+
+    | Alteração | Aulas alteradas (incremental) | Aulas alteradas (do zero) |
+    |---|---|---|
+    | Disponibilidade (`dados_v2`) | 2 | 25 |
+    | Turma e disciplina novas | 3 | _ |
+    | Professor substituído | 0 | 30 |
+    | Sala Normal com menos salas | 6 | 33 |
+
+    Em todos os casos os dois horários são válidos, e o incremental muda muito menos aulas. A avaria de uma sala modela-se baixando a `quantidade` do tipo em `salas.csv`, porque o formato dos dados só guarda a quantidade por tipo de sala e não a disponibilidade por tempo.
+    """)
+    return
+
+
+@app.cell
+def _(construir_modelo, lista_de_dados):
+    def construcao_incremental(dados_novos, sol0, peso=100):
+        modelo, x = construir_modelo(dados_novos, com_objetivo=False)
+        p = lista_de_dados(dados_novos)
+        antigas = [k for k, v in sol0.items() if v == 1 and k in x]
+        mudancas = sum(1 - x[k] for k in antigas)
+        menos_buracos(modelo, x, p, extra=peso * mudancas)
+
+        for k, v in sol0.items():
+            if k in x:
+                modelo.AddHint(x[k], v)
+
+        return modelo, x
+
+    return (construcao_incremental,)
+
+
+@app.cell
+def _(ler_dados):
+    dados0 = ler_dados("dados")
+    dados1 = ler_dados("dados_v2")
+    return dados0, dados1
+
+
+@app.cell
+def _(construcao_incremental, construir_modelo, dados0, dados1, resolver):
+    modelo0, x0 = construir_modelo(dados0)
+    sol0 = resolver(modelo0, x0)
+
+    modelo1, x1 = construcao_incremental(dados1, sol0)
+    sol1 = resolver(modelo1, x1)
+    return sol0, sol1
+
+
+@app.function
+def mudancas_entre(sol_antigo, sol_novo):
+    return sum(1 for k, v in sol_antigo.items() if v == 1 and sol_novo.get(k, 0) == 0)
+
+
+@app.cell
+def _(dados0, dados1, sol0, sol1, verificar):
+    verificar(dados0, sol0)    
+    verificar(dados1, sol1) 
+    mudancas_entre(sol0, sol1)
+    return
+
+
+@app.cell
+def _(
+    construcao_incremental,
+    construir_modelo,
+    dados1,
+    resolver,
+    sol0,
+    verificar,
+):
+    import time
+
+    def medir(construir, repeticoes=5):
+        tempos = []
+        for _ in range(repeticoes):
+            modelo, x = construir()
+            t0 = time.perf_counter()
+            sol = resolver(modelo, x)
+            tempos.append(time.perf_counter() - t0)
+        return sol, sum(tempos) / len(tempos)
+
+    sol1_zero, t_zero = medir(lambda: construir_modelo(dados1))
+    sol1_inc, t_inc = medir(lambda: construcao_incremental(dados1, sol0))
+
+    print(f"Do zero: {t_zero:.3f} s, {mudancas_entre(sol0, sol1_zero)} aulas alteradas")
+    print(f"Incremental: {t_inc:.3f} s, {mudancas_entre(sol0, sol1_inc)} aulas alteradas")
+    print("Válidos:", verificar(dados1, sol1_zero) == [], verificar(dados1, sol1_inc) == [])
+    return
+
+
+@app.cell
+def _(construcao_incremental, ler_dados, resolver, sol0, verificar):
+    dados2 = ler_dados("dados_teste")
+    modelo2, x2 = construcao_incremental(dados2, sol0)
+    sol2 = resolver(modelo2, x2)
+    print(verificar(dados2, sol2) == [], mudancas_entre(sol0, sol2))
+    return
+
+
+@app.cell
+def _(
+    construcao_incremental,
+    construir_modelo,
+    dados0,
+    resolver,
+    sol0,
+    verificar,
+):
+    import copy
+
+    dados3 = copy.deepcopy(dados0)      # professor substituído
+    dados3["disciplinas"].loc[dados3["disciplinas"]["disciplina"] == "Matemática", "professor"] = "Prof. Nova"
+
+    dados4 = copy.deepcopy(dados0)      # sala avariada: menos salas normais
+    dados4["salas"].loc[dados4["salas"]["sala"] == "Sala Normal", "quantidade"] = 1
+
+    for _nome, _dn in [("Professor substituído", dados3), ("Sala Normal reduzida", dados4)]:
+        _mi, _xi = construcao_incremental(_dn, sol0)
+        _si = resolver(_mi, _xi)
+        _mz, _xz = construir_modelo(_dn)
+        _sz = resolver(_mz, _xz)
+        print(_nome, "| incremental:", mudancas_entre(sol0, _si),
+              "| do zero:", mudancas_entre(sol0, _sz),
+              "| válidos:", verificar(_dn, _si) == [], verificar(_dn, _sz) == [])
     return
 
 
