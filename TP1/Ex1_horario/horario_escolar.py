@@ -80,8 +80,9 @@ def _(mo):
 @app.cell
 def _():
     import marimo as mo
+    import time
 
-    return (mo,)
+    return mo, time
 
 
 @app.cell
@@ -100,7 +101,7 @@ def _(mo):
     pasta_dados = "dados" # posso por "dados", "dados_v2" ou "dados_teste"
     dados = ler_dados(pasta_dados)
     mo.vstack([dados["disciplinas"], dados["disponibilidade"], dados["salas"], dados["turmas"]])
-    return dados, ler_dados, pd
+    return Path, dados, ler_dados, pd
 
 
 @app.cell
@@ -558,8 +559,10 @@ def _(cp_model, lista_de_dados):
 
 @app.cell
 def _(cp_model):
-    def resolver(modelo, x):
+    def resolver(modelo, x, tempo_max=None):
         solver = cp_model.CpSolver()
+        if tempo_max:
+            solver.parameters.max_time_in_seconds = tempo_max
         estado = solver.Solve(modelo)
         if solver.StatusName(estado) not in ("OPTIMAL", "FEASIBLE"):
             return None
@@ -734,10 +737,9 @@ def _(
     dados1,
     resolver,
     sol0,
+    time,
     verificar,
 ):
-    import time
-
     def medir(construir, repeticoes=5):
         tempos = []
         for _ in range(repeticoes):
@@ -839,6 +841,80 @@ def _(dados0, dados1, grelha_df, mo, sol0, sol1):
         mo.vstack([mo.md("**7ºA, H0**"), grelha_df(dados0, sol0, "7ºA")]),
         mo.vstack([mo.md("**7ºA, H1**"), grelha_df(dados1, sol1, "7ºA")]),
     ])
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ### Escala (bónus)
+
+    Para estudar o comportamento com mais turmas, geramos conjuntos de dados sintéticos (`gerar_dados_escala`) com 16 disciplinas de carga semanal 1, cada uma com um professor próprio, e 4 a 24 turmas. Os dados continuam a ser lidos de ficheiros CSV, sem alterar o código do modelo.
+
+    | Turmas | Variáveis | Tempo de resolução (s) | Resultado |
+    |---|---|---|---|
+    | 4 | 1 600 | 0,22 | válido |
+    | 8 | 3 200 | 0,35 | válido |
+    | 12 | 4 800 | 0,48 | válido |
+    | 16 | 6 400 | 0,79 | válido |
+    | 20 | 8 000 | 0,86 | válido |
+    | 24 | 9 600 | 1,05 | válido |
+
+    Em todos os casos o horário cumpre as regras (verificado pelo validador independente) e o tempo cresce de forma aproximadamente linear com o número de variáveis, ficando perto de 1 s para 9 600 variáveis.
+
+    **Limites encontrados.** Até às 24 turmas não encontrámos um limite computacional, mas encontrámos um limite estrutural dos dados. Com o formato atual, cada turma tem todas as disciplinas e cada disciplina um único professor, pelo que a carga de um professor cresce com o número de turmas. Com 8 disciplinas de carga 2, um professor dá $2N$ tempos por semana e só tem 25, logo o problema fica impossível a partir de 13 turmas (confirmámos com 16: o solver prova rapidamente que não há solução). Por isso os dados de escala usam carga 1 e mais disciplinas, o que permite até 25 turmas.
+
+    A dificuldade de uma instância depende não só do tamanho mas de quão apertada está: com salas, professores ou tempos muito escassos, o solver tem de explorar muito mais, e é aí que o tempo pode crescer depressa.
+    """)
+    return
+
+
+@app.cell
+def _(Path, pd):
+    def gerar_dados_escala(pasta, n_turmas, n_disc=16, carga=1):
+        pasta = Path(pasta)
+        pasta.mkdir(exist_ok=True)
+        pd.DataFrame({"turma": [f"T{k}" for k in range(n_turmas)]}).to_csv(pasta / "turmas.csv", index=False)
+        pd.DataFrame({
+            "disciplina": [f"Disc{j}" for j in range(n_disc)],
+            "professor": [f"Prof{j}" for j in range(n_disc)],
+            "carga_semanal": [carga] * n_disc,
+            "duplo_periodo": ["nao"] * n_disc,
+            "sala_especial": [""] * n_disc,
+        }).to_csv(pasta / "disciplinas.csv", index=False)
+        pd.DataFrame({"sala": ["Sala Normal"], "tipo": ["normal"], "quantidade": [n_turmas]}).to_csv(pasta / "salas.csv", index=False)
+        pd.DataFrame({"professor": [], "dia": [], "periodo": []}).to_csv(pasta / "disponibilidade_excecoes.csv", index=False)
+
+    return (gerar_dados_escala,)
+
+
+@app.cell
+def _(
+    construir_modelo,
+    gerar_dados_escala,
+    ler_dados,
+    pd,
+    resolver,
+    time,
+    verificar,
+):
+    resultados = []
+    for _n in (4, 8, 12, 16, 20, 24):
+        gerar_dados_escala(f"dados_escala_{_n}", _n)
+        _d = ler_dados(f"dados_escala_{_n}")
+        _modelo, _x = construir_modelo(_d)
+        _t0 = time.perf_counter()
+        _sol = resolver(_modelo, _x, tempo_max=60)
+        _dt = time.perf_counter() - _t0
+        resultados.append({
+            "turmas": _n,
+            "variáveis": len(_x),
+            "tempo (s)": round(_dt, 2),
+            "resultado": "sem solução" if _sol is None
+                else ("válido" if verificar(_d, _sol) == [] else "INVÁLIDO"),
+    })
+
+    pd.DataFrame(resultados)
     return
 
 
