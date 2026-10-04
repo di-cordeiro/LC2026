@@ -670,7 +670,7 @@ def _(mo):
     | Alteração | Aulas alteradas (incremental) | Aulas alteradas (do zero) |
     |---|---|---|
     | Disponibilidade (`dados_v2`) | 2 | 25 |
-    | Turma e disciplina novas | 3 | _ |
+    | Turma e disciplina novas | 3 | 27 |
     | Professor substituído | 0 | 30 |
     | Sala Normal com menos salas | 6 | 33 |
 
@@ -757,15 +757,6 @@ def _(
 
 
 @app.cell
-def _(construcao_incremental, ler_dados, resolver, sol0, verificar):
-    dados2 = ler_dados("dados_teste")
-    modelo2, x2 = construcao_incremental(dados2, sol0)
-    sol2 = resolver(modelo2, x2)
-    print(verificar(dados2, sol2) == [], mudancas_entre(sol0, sol2))
-    return
-
-
-@app.cell
 def _(
     construcao_incremental,
     construir_modelo,
@@ -790,6 +781,64 @@ def _(
         print(_nome, "| incremental:", mudancas_entre(sol0, _si),
               "| do zero:", mudancas_entre(sol0, _sz),
               "| válidos:", verificar(_dn, _si) == [], verificar(_dn, _sz) == [])
+    return
+
+
+@app.cell
+def _(
+    construcao_incremental,
+    construir_modelo,
+    ler_dados,
+    resolver,
+    sol0,
+    verificar,
+):
+    _dados_t = ler_dados("dados_teste")
+
+    _mi, _xi = construcao_incremental(_dados_t, sol0)
+    _si = resolver(_mi, _xi)
+
+    _mz, _xz = construir_modelo(_dados_t)
+    _sz = resolver(_mz, _xz)
+
+    print("Incremental:", mudancas_entre(sol0, _si), "aulas alteradas")
+    print("Do zero:", mudancas_entre(sol0, _sz), "aulas alteradas")
+    print("Válidos:", verificar(_dados_t, _si) == [], verificar(_dados_t, _sz) == [])
+    return
+
+
+@app.cell
+def _(lista_de_dados, pd):
+    def grelha_df(dados, sol, turma):
+        p = lista_de_dados(dados)
+        linhas = {}
+        for h in p["H"]:
+            linha = {}
+            for i in p["I"]:
+                aula = [d for d in p["D"] if sol[(turma, d, i, h)] == 1]
+                linha[i] = aula[0] if aula else "-"
+            linhas[f"{h}º tempo"] = linha
+        return pd.DataFrame.from_dict(linhas, orient="index")
+
+    return (grelha_df,)
+
+
+@app.cell
+def _(dados, grelha_df, lista_de_dados, mo, sol):
+    mo.vstack([
+        item
+        for _t in lista_de_dados(dados)["T"]
+        for item in (mo.md(f"**Turma {_t}**"), grelha_df(dados, sol, _t))
+    ])
+    return
+
+
+@app.cell
+def _(dados0, dados1, grelha_df, mo, sol0, sol1):
+    mo.hstack([
+        mo.vstack([mo.md("**7ºA, H0**"), grelha_df(dados0, sol0, "7ºA")]),
+        mo.vstack([mo.md("**7ºA, H1**"), grelha_df(dados1, sol1, "7ºA")]),
+    ])
     return
 
 
