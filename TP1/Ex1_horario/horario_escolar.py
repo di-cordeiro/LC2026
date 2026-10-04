@@ -92,11 +92,14 @@ def _(mo):
 
     def ler_dados(pasta):
         pasta = Path(pasta)
+        ficheiro_pref = pasta / "preferencias.csv"
         return {
             "disciplinas": pd.read_csv(pasta / "disciplinas.csv"),
             "disponibilidade": pd.read_csv(pasta / "disponibilidade_excecoes.csv"),
             "salas": pd.read_csv(pasta / "salas.csv"),
-            "turmas": pd.read_csv(pasta / "turmas.csv")
+            "turmas": pd.read_csv(pasta / "turmas.csv"),
+            "preferencias": (pd.read_csv(ficheiro_pref) if ficheiro_pref.exists()
+                             else pd.DataFrame(columns=["professor", "dia", "periodo", "penalizacao"])),
         }
     pasta_dados = "dados" # posso por "dados", "dados_v2" ou "dados_teste"
     dados = ler_dados(pasta_dados)
@@ -121,6 +124,8 @@ def _(pd):
                      for d, e in zip(disc["disciplina"], disc["sala_especial"])},
             "quantidade_salas": dict(zip(dados["salas"]["sala"], dados["salas"]["quantidade"])),
             "indisponivel": set(zip(dados["disponibilidade"]["professor"], dados["disponibilidade"]["dia"],dados["disponibilidade"]["periodo"])),
+            "preferencias": {(r.professor, r.dia, r.periodo): int(r.penalizacao)
+                     for r in dados["preferencias"].itertuples()},
         }
 
     return (lista_de_dados,)
@@ -497,12 +502,16 @@ def _(mo):
 @app.function
 def menos_buracos(modelo,x,p, extra=0):
     buracos = []
+    penal = []
     for prof in sorted(set(p["professor"].values())):
         for i in p["I"]:
             a = {}
             for h in p["H"]:
                 a[h] = modelo.NewBoolVar(f"a_{prof}_{i}_{h}")
                 modelo.Add(a[h] == sum(x[(t, d, i, h)] for t in p["T"] for d in p["D"] if p["professor"][d] == prof))
+                peso = p["preferencias"].get((prof, i, h), 0)
+                if peso:
+                    penal.append(peso * a[h])
             for h in p["H"]:
                 antes = modelo.NewBoolVar(f"antes_{prof}_{i}_{h}")
                 depois = modelo.NewBoolVar(f"depois_{prof}_{i}_{h}")
@@ -514,7 +523,7 @@ def menos_buracos(modelo,x,p, extra=0):
                 b = modelo.NewBoolVar(f"b_{prof}_{i}_{h}")
                 modelo.Add(b >= depois + antes - a[h] - 1)
                 buracos.append(b)
-    modelo.Minimize(sum(buracos) + extra)
+    modelo.Minimize(sum(buracos) + sum(penal) + extra)
 
 
 @app.cell
@@ -783,7 +792,7 @@ def _(
         print(_nome, "| incremental:", mudancas_entre(sol0, _si),
               "| do zero:", mudancas_entre(sol0, _sz),
               "| válidos:", verificar(_dn, _si) == [], verificar(_dn, _sz) == [])
-    return
+    return (copy,)
 
 
 @app.cell
@@ -915,6 +924,57 @@ def _(
     })
 
     pd.DataFrame(resultados)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ### Preferências dos professores (bónus)
+
+    Além dos buracos, os professores podem indicar tempos em que preferem não dar aulas. Estas preferências são lidas de `preferencias.csv` (professor, dia, período e penalização), um ficheiro opcional: se não existir, o modelo comporta-se como antes.
+
+    Uma preferência não é uma restrição, é um custo: dar uma aula num tempo penalizado soma a penalização ao objetivo. O objetivo passa a ser
+
+    $$\min \;\; \sum_{p,i,h} b_{p,i,h} \;+\; \sum_{p,i,h} \text{pen}_{p,i,h}\cdot a_{p,i,h}$$
+
+    em que $\text{pen}_{p,i,h}$ é a penalização lida do ficheiro (0 se não houver). Uma penalização de 1 vale tanto como um buraco, e valores maiores dão mais peso à preferência. Como é um custo e não uma regra, o validador não a verifica: o horário pode, em princípio, usar um tempo penalizado se compensar noutro critério.
+
+    **Resultado.** Com a Prof. Ana a preferir não dar aulas ao 1.º tempo, o custo das preferências do horário gerado sem as considerar é 2, e com elas é 0, mantendo 0 buracos e um horário válido.
+    """)
+    return
+
+
+@app.cell
+def _(
+    construir_modelo,
+    contar_buracos,
+    copy,
+    ler_dados,
+    lista_de_dados,
+    resolver,
+    verificar,
+):
+    def custo_preferencias(sol, p):
+        total = 0
+        for t in p["T"]:
+            for d in p["D"]:
+                for i in p["I"]:
+                    for h in p["H"]:
+                        total += p["preferencias"].get((p["professor"][d], i, h), 0) * sol[(t, d, i, h)]
+        return total
+
+    _dp = ler_dados("dados")
+    _dsem = copy.deepcopy(_dp)
+    _dsem["preferencias"] = _dsem["preferencias"].iloc[0:0]      # mesmos dados, sem preferências
+
+    _p = lista_de_dados(_dp)
+    _sol_com = resolver(*construir_modelo(_dp))
+    _sol_sem = resolver(*construir_modelo(_dsem))
+    print("Custo das preferências sem elas:", custo_preferencias(_sol_sem, _p))
+    print("Custo das preferências com elas:", custo_preferencias(_sol_com, _p))
+    print("Buracos com elas:", contar_buracos(_sol_com, _p))
+    print("Válido:", verificar(_dp, _sol_com) == [])
     return
 
 
