@@ -58,7 +58,7 @@ def _():
             # verifica se as coordenadas são válidas
             if not (0<=i<dim and 0<=j<dim):
                 raise IndexError("coordenadas inválidas")
-            
+    
             # verifica se o valor é válido
             if not (val is None or 0<val<=dim):
                 raise ValueError("valor inválido")
@@ -93,9 +93,9 @@ def _():
 
             # verifica se a célula é válida
             valida_celula(i,j,val,self.dim)
-        
+
             self.cells[(i,j)] = val
-    
+
 
         # matriz de box
         def matrix(self):
@@ -107,7 +107,7 @@ def _():
                 linha = []
                 for j in range(self.dim):
                     linha.append(0)
-                
+        
                 m.append(linha)
 
             # atualiza as células fixas
@@ -244,14 +244,14 @@ def _(cube):
         c = cube(2,0,1) # linha inicial=0 e coluna inicial=2  
         print(c.cells)
 
-    
+
     # cria um cube com n=3
     def teste_cube_n3():
         print("n = 3")
         c = cube(3,1,2) # linha inicial=3 e coluna inicial=6
         print(c.cells)
 
-    
+
     teste_cube_n2()
     print()
     teste_cube_n3()
@@ -377,7 +377,7 @@ def _(path):
         p = path(3, (2,5), (2,1))
         print(p.cells)
 
-    
+
     teste_path()
     print()
     teste_path_contrario()
@@ -488,7 +488,7 @@ def _(imprime_matriz, pistas_aleatorias):
         m = p.matrix()
         imprime_matriz(m)
 
-    
+
     teste_pistas()
 
 
@@ -573,7 +573,7 @@ def _(cp_model):
     def add_grupos(model, variaveis, grupos):
 
         # como os diferentes grupos de células mantém a mesma estrutura base: box, é possível tratar box,cube,path e pistas da mesma maneira
-    
+
         # para cada grupo
         for grupo in grupos:
 
@@ -626,7 +626,7 @@ def _(cp_model):
         if m is None:
             print("sudoku sem solução")
             return 
-    
+
         for i in range(dim):
             if i % n == 0 and i != 0: # separação horizontal entre blocos
                 print("-" * (dim * 2 + n - 1))
@@ -916,13 +916,7 @@ def _():
 
         return True
 
-    return (
-        valida_blocos,
-        valida_colunas,
-        valida_linhas,
-        valida_pistas,
-        valida_solucao,
-    )
+    return valida_colunas, valida_linhas, valida_pistas, valida_solucao
 
 
 @app.cell
@@ -966,7 +960,7 @@ def _(mo):
     Na maior parte dos casos, o código foi desenvolvido de forma incremental: era apresentada uma tentativa de implementação, seguida da análise dos erros ou dúvidas existentes e da respetiva correção.
 
     O diálogo utilizado durante a resolução encontra-se disponível em:
-    [(https://chatgpt.com/share/6ac47338-c038-83ed-b8a0-a17c53edfcd5)]
+    [https://chatgpt.com/share/6ac55b45-de20-83eb-ade2-1ae8a31d6a7b]
     """)
     return
 
@@ -1025,10 +1019,8 @@ def _(
     path,
     pistas_aleatorias,
     resolve_sudoku,
-    valida_blocos,
-    valida_colunas,
-    valida_linhas,
     valida_pistas,
+    valida_solucao,
 ):
     # Apoio LLM: ideia de representar as diagonais como grupos box e correção da coordenada final da coluna
 
@@ -1046,7 +1038,6 @@ def _(
             diagonal_secundaria.add(i, dim - 1 - i) # posições (0,dim-1), (1,dim-2), (2,dim-3), ...
 
         return diagonal_principal, diagonal_secundaria
-
 
 
     def sudoku_diagonal(n, k=None): # k opcional para gerar pistas iniciais
@@ -1100,7 +1091,7 @@ def _(
 
 
     # verfica se as diagonais cumprem os requisitos
-    def valida_diagonais(matriz, lista_comparacao, dim):
+    def valida_diagonais(matriz, lista_esperada, dim):
         principal = []
         secundaria = []
 
@@ -1108,10 +1099,10 @@ def _(
             principal.append(matriz[i][i])
             secundaria.append(matriz[i][dim-1-i])
 
-        if sorted(principal) != lista_comparacao:
+        if sorted(principal) != lista_esperada:
             return False
 
-        if sorted(secundaria) != lista_comparacao:
+        if sorted(secundaria) != lista_esperada:
             return False
 
         return True
@@ -1123,16 +1114,8 @@ def _(
         # lista de valores que cada linha, coluna e bloco deve conter
         lista_esperada = list(range(1, dim+1)) 
 
-        # validação das linhas
-        if not valida_linhas(matriz, lista_esperada, dim):
-            return False
-
-        # validação das colunas
-        if not valida_colunas(matriz, lista_esperada, dim):
-            return False
-
-        # validação dos blocos
-        if not valida_blocos(matriz, lista_esperada, n):
+        # validação do sudoku normal
+        if not valida_solucao(matriz, pistas, n):
             return False
 
         # validação dos diagonais
@@ -1166,7 +1149,200 @@ def _(sudoku_diagonal, valida_solucao_diagonal):
     teste_x_sudoku(2)
     print()
     teste_x_sudoku(3)
+    return
 
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ## **Sudoku irregular (Jigsaw)**
+
+    Nesta extensão foram substituídos os blocos regulares $n \times n$ por regiões de forma arbitrária.
+
+    Cada região continua a conter exatamente `n²` células e é representada através de um objeto `box`. Como consequência, o modelo CSP não necessita de ser alterado, uma vez que cada região continua a ser tratada apenas como um grupo de células sujeito à restrição `AddAllDifferent()`.
+
+    Para construir as regiões, são inicialmente geradas todas as coordenadas da grelha. Estas coordenadas são depois baralhadas aleatoriamente e divididas em `n²` grupos, contendo cada grupo `n²` células.
+
+    Desta forma, garante-se que todas as posições da grelha são utilizadas exatamente uma vez e que nenhuma célula pertence a duas regiões diferentes.
+
+    Na função `sudoku_jigsaw`, as linhas e colunas continuam a ser representadas através de `path`. A principal diferença relativamente ao Sudoku normal é que os blocos `cube` deixam de ser adicionados e são substituídos pelas regiões geradas através de `regioes_jigsaw`.
+
+    As regiões, juntamente com as linhas, colunas e pistas, são posteriormente fornecidas à função `add_grupos`, mantendo a mesma lógica de resolução utilizada anteriormente.
+    """)
+    return
+
+
+@app.cell
+def _(
+    add_grupos,
+    box,
+    imprime_sudoku,
+    modelo_sudoku,
+    path,
+    pistas_aleatorias,
+    random,
+    resolve_sudoku,
+    valida_colunas,
+    valida_linhas,
+    valida_pistas,
+):
+    # Apoio LLM: correção da geração das regiões Jigsaw e da validação específica das regiões 
+
+    # adiciona regiões
+    def regioes_jigsaw(n, dim):
+        # exitem n² regiões (dim)
+        # cada região tem n² células sem repetições (dim)
+        # nenhuma célula aparece em duas regiões e nenhuma fica por usar
+
+        coordenadas = [] # lista de coordenadas
+        for i in range(dim):
+            for j in range(dim):
+                coordenadas.append((i,j))
+
+        # baralha as coordenadas
+        random.shuffle(coordenadas)
+
+        regioes =  [] # lista das regiões 
+
+        for r in range(dim):
+            regiao = box(n) # cria box para cada região
+
+            inicio = r * dim
+            fim = inicio + dim
+            for c in coordenadas[inicio:inicio+dim]:
+                i, j = c
+                regiao.add(i,j)
+
+            # adiciona a regiao ao grupo
+            regioes.append(regiao)
+
+        return regioes
+
+
+    # substituir cubes por regioes na função de sudoku
+    def sudoku_jigsaw(n, k=None): # k opcional para gerar pistas iniciais
+        dim = n**2
+
+        # criar modelo
+        model, vars = modelo_sudoku(n)
+
+        # criar listas de grupos
+        grupos = []
+
+        # adiciona todas as linhas com path
+        for i in range(dim):
+            # cada linha vai da coluna 0 até coluna dim-1
+            linha = path(n, (i,0), (i,dim-1)) 
+            grupos.append(linha)
+
+        # adiciona todas as colunas com path
+        for j in range(dim):
+            # cada coluna vai da linha 0 até linha dim-1
+            coluna = path(n, (0,j), (dim-1,j)) 
+            grupos.append(coluna)
+
+        # adiciona todos os blocos com regiao
+        regioes = regioes_jigsaw(n, dim)
+        for regiao in regioes:
+            grupos.append(regiao)
+
+        # adiciona pistas aleatórias
+        pistas = pistas_aleatorias(n, k)
+        grupos.append(pistas)
+
+        # passar essa lista ao add_grupos
+        add_grupos(model, vars, grupos)
+
+        # resolver
+        res = resolve_sudoku(model, vars, n**2)
+
+        # imprimir solução
+        imprime_sudoku(res, n)
+
+        return res, pistas, regioes
+
+
+    # verifica se as regioes cumprem as restrições
+    def valida_regioes_jigsaw(matriz, regioes, lista_esperada, n):
+        dim = n**2
+
+        for regiao in regioes:
+            valores = []
+
+            for i, j in regiao.cells:
+                valores.append(matriz[i][j])
+
+            if sorted(valores) != lista_esperada:
+                return False
+
+        return True
+
+
+    # valida o sudoku jigsaw
+    def valida_solucao_jigsaw(matriz, pistas, regioes, n):
+        dim = n**2
+
+        # lista de valores que cada linha, coluna e bloco deve conter
+        lista_esperada = list(range(1, dim+1)) 
+
+        # validação das linhas
+        if not valida_linhas(matriz, lista_esperada, dim):
+            return False
+
+        # validação das colunas
+        if not valida_colunas(matriz, lista_esperada, dim):
+            return False
+
+        # validação dos blocos
+        if not valida_regioes_jigsaw(matriz, regioes, lista_esperada, n):
+            return False
+
+        # validação das pistas
+        if not valida_pistas(matriz, pistas):
+            return False
+
+        return True
+
+    return sudoku_jigsaw, valida_solucao_jigsaw
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    Teste sobre as funcionalidades de Jigsaw e a validação:
+    """)
+    return
+
+
+@app.cell
+def _(sudoku_jigsaw, valida_solucao_jigsaw):
+    # Apoio LLM: geração de uma função para imprimir as coordenadas de cada região de forma mais legível
+
+    def imprime_regioes(regioes):
+        for i, regiao in enumerate(regioes):
+            print("Região", i, ":", list(regiao.cells.keys()))
+
+    def teste_jigsaw(n):
+        matriz, pistas, regioes = sudoku_jigsaw(n)
+        print()
+        imprime_regioes(regioes)
+        print()
+        print("Solução válida: ", valida_solucao_jigsaw(matriz, pistas, regioes, n))
+
+
+    teste_jigsaw(2)
+    print()
+    teste_jigsaw(3)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    Os testes realizados para `n = 2` e `n = 3` devolveram `True` na validação final, confirmando que as soluções respeitam as restrições das linhas, colunas, regiões e pistas.
+
+    Desta forma, verifica-se que a substituição dos blocos regulares por regiões arbitrárias funciona corretamente sem alterar o modelo CSP.
+    """)
     return
 
 
@@ -1231,11 +1407,11 @@ def _(mo):
 
     O apoio incidiu principalmente na implementação do X-Sudoku, nomeadamente na representação das diagonais como novos grupos de células, na validação dessas restrições e na correção de alguns erros encontrados durante os testes.
 
+    No bónus do Sudoku Jigsaw, foi utilizado apoio de LLM na correção da geração das regiões, na adaptação da montagem do Sudoku para substituir os blocos regulares por regiões arbitrárias e na definição da validação específica dessas regiões.
+
     Foi também utilizado para explorar possíveis abordagens para outros bónus e para a realização do teste de escalabilidade com `n=6`, incluindo a medição do tempo de execução.
 
-    O diálogo utilizado durante a resolução encontra-se disponível em: [(https://chatgpt.com/share/6ac47338-c038-83ed-b8a0-a17c53edfcd5)]
-
-    Não foi possível implementar todos os bónus propostos dentro do tempo disponível, pelo que foi dada prioridade à implementação e validação do X-Sudoku e ao teste de escalabilidade.
+    O diálogo utilizado durante a resolução encontra-se disponível em: [https://chatgpt.com/share/6ac55b45-de20-83eb-ade2-1ae8a31d6a7b]
 
     De forma geral, esta parte permitiu verificar que a estrutura genérica desenvolvida para o Sudoku clássico pode ser reutilizada e adaptada a outras variantes sem alterar a lógica principal do modelo.
     """)
