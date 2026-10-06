@@ -55,8 +55,8 @@ marimo run horario_escolar.py     # para ver como aplicação
 - [x] Tratar outras alterações: disponibilidade, sala avariada, turma nova, professor substituído
 
 **6. Apresentação e entrega**
-- [ ] Horário numa grelha semanal por turma
-- [ ] Notebook a correr de ponta a ponta sem erros
+- [x] Horário numa grelha semanal por turma
+- [x] Notebook a correr de ponta a ponta sem erros
 - [ ] Partes geradas por LLM marcadas nos comentários
 - [ ] Link da conversa com o LLM no relatório
 - [ ] PDF exportado
@@ -64,7 +64,7 @@ marimo run horario_escolar.py     # para ver como aplicação
 
 **Bónus (opcional)**
 - [ ] Preferências dos professores na função objetivo
-- [ ] Escala: mais turmas e professores, e limites encontrados
+- [x] Escala: mais turmas e professores, e limites encontrados
 
 ## Decisões a justificar na discussão oral
 
